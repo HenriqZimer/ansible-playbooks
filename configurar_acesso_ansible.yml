@@ -1,0 +1,73 @@
+---
+- name: Configurar Acesso SSH sem Senha para o Usuário Ansible
+  hosts: ubuntu_servers
+  become: true
+
+  vars:
+    ansible_user_name: "ansible"
+  pre_tasks:
+    - name: Garantir que a máquina de controle tenha um par de chaves SSH
+      delegate_to: localhost
+      become: false
+      run_once: true
+      block:
+        - name: Verificar se a chave pública existe no controlador
+          ansible.builtin.stat:
+            path: "{{ lookup('env','HOME') + '/.ssh/id_rsa.pub' }}"
+          register: controller_pubkey
+
+        - name: Gerar par de chaves RSA no controlador (se ausente)
+          ansible.builtin.openssh_keypair:
+            path: "{{ lookup('env','HOME') + '/.ssh/id_rsa' }}"
+            type: rsa
+            size: 4096
+            mode: '0600'
+          when: not controller_pubkey.stat.exists
+  
+  tasks:
+    - name: 1. Criar o Usuário de Serviço Ansible (se não existir)
+      ansible.builtin.user:
+        name: "{{ ansible_user_name }}"
+        state: present
+        shell: /bin/bash
+
+    - name: 2. Garantir que o diretório .ssh exista e tenha permissões corretas
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user_name }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+        mode: "0700"
+
+    # A leitura da chave pública do nó de controle é feita via lookup('file')
+    # Isso é avaliado no controlador e evita delegações/saída ambígua.
+
+    - name: 4. Copiar a Chave Pública para authorized_keys
+      ansible.builtin.authorized_key:
+        user: "{{ ansible_user_name }}"
+        state: present
+        key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+        path: "/home/{{ ansible_user_name }}/.ssh/authorized_keys"
+
+    - name: 5. Garantir que a máquina de controle conheça a chave do host remoto (known_hosts)
+      delegate_to: localhost
+      become: false
+      # Não usar become ao manipular o known_hosts do usuário local
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('env','HOME') }}/.ssh/known_hosts"
+        name: "{{ ansible_host | default(inventory_hostname) }}"
+        key: "{{ lookup('pipe', 'ssh-keyscan -H ' + (ansible_host | default(inventory_hostname))) }}"
+      run_once: false
+
+    - name: 6. Configurar o Usuário para Usar SUDO sem Senha (NOPASSWD)
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/99-ansible-svc
+        state: present
+        create: true
+        mode: "0440"
+        line: "{{ ansible_user_name }} ALL=(ALL) NOPASSWD: ALL"
+        validate: /usr/sbin/visudo -cf %s
+
+    - name: Chave SSH e SUDO NOPASSWD configurados
+      ansible.builtin.debug:
+        msg: "Usuário '{{ ansible_user_name }}' configurado. Lembre-se de atualizar seu inventory.ini para usar este novo usuário!"

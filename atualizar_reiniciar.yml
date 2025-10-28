@@ -1,0 +1,71 @@
+---
+- name: Atualizar Servidores Ubuntu e Reiniciar se Necessário
+  hosts: ubuntu_servers
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: 1. Atualizar cache e fazer o "dist-upgrade" completo
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+      register: upgrade_status
+
+    # --- INÍCIO: FEEDBACK DE ATUALIZAÇÃO ---
+    - name: "Feedback: Status da Atualização"
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }} ({{ ansible_host | default('N/A') }})
+          Status: {% if upgrade_status.changed %}ATUALIZADO (Pacotes alterados){% else %}NÃO ATUALIZADO (Já estava na versão mais recente){% endif %}
+      # Esta tarefa vai mostrar se o 'apt' realmente aplicou mudanças ou não.
+    # --- FIM: FEEDBACK DE ATUALIZAÇÃO ---
+
+
+    - name: 2. Verificar se um reboot é necessário
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+
+    # --- INÍCIO: FEEDBACK SOBRE NECESSIDADE DE REBOOT ---
+    - name: "Feedback: Necessidade de Reboot"
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Reboot Necessário: {% if reboot_required_file.stat.exists %}SIM, o arquivo /var/run/reboot-required foi encontrado.{% else %}NÃO é necessário reboot.{% endif %}
+      # Este feedback é útil mesmo que a máquina não vá reiniciar imediatamente.
+    # --- FIM: FEEDBACK SOBRE NECESSIDADE DE REBOOT ---
+
+
+    - name: 3. Reiniciar a máquina, se necessário
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: reboot_required_file.stat.exists == true
+      register: reboot_performed
+
+    # --- INÍCIO: FEEDBACK DE REBOOT REALIZADO ---
+    - name: "Feedback: Reboot Realizado com Sucesso"
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          A máquina foi REINICIADA com sucesso após a atualização.
+      when: reboot_performed is changed
+      # O 'reboot_performed is changed' garante que a mensagem só aparece se o reboot foi de fato executado e completado.
+    # --- FIM: FEEDBACK DE REBOOT REALIZADO ---
+
+
+    - name: 4. Remover pacotes e dependências não mais necessárias
+      ansible.builtin.apt:
+        autoremove: yes
+      when: reboot_required_file.stat.exists == false
+      # Adicionei um registro aqui também, para feedback de limpeza
+      register: autoremove_status
+
+    # --- INÍCIO: FEEDBACK DE LIMPEZA ---
+    - name: "Feedback: Status da Limpeza (autoremove)"
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Limpeza (autoremove): {% if autoremove_status.changed %}REALIZADA (Pacotes antigos/não usados removidos).{% else %}NÃO HÁ nada para remover ou não executado (se o reboot foi agendado).{% endif %}
+      when: reboot_required_file.stat.exists == false
+      # Só mostra o status se a limpeza foi tentada (ou seja, se o reboot não foi necessário)
+    # --- FIM: FEEDBACK DE LIMPEZA ---
