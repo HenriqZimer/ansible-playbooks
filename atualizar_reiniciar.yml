@@ -20,7 +20,6 @@
       # Esta tarefa vai mostrar se o 'apt' realmente aplicou mudanças ou não.
     # --- FIM: FEEDBACK DE ATUALIZAÇÃO ---
 
-
     - name: 2. Verificar se um reboot é necessário
       ansible.builtin.stat:
         path: /var/run/reboot-required
@@ -34,7 +33,6 @@
           Reboot Necessário: {% if reboot_required_file.stat.exists %}SIM, o arquivo /var/run/reboot-required foi encontrado.{% else %}NÃO é necessário reboot.{% endif %}
       # Este feedback é útil mesmo que a máquina não vá reiniciar imediatamente.
     # --- FIM: FEEDBACK SOBRE NECESSIDADE DE REBOOT ---
-
 
     - name: 3. Reiniciar a máquina, se necessário
       ansible.builtin.reboot:
@@ -51,7 +49,6 @@
       when: reboot_performed is changed
       # O 'reboot_performed is changed' garante que a mensagem só aparece se o reboot foi de fato executado e completado.
     # --- FIM: FEEDBACK DE REBOOT REALIZADO ---
-
 
     - name: 4. Remover pacotes e dependências não mais necessárias
       ansible.builtin.apt:

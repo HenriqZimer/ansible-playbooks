@@ -21,9 +21,9 @@
             path: "{{ lookup('env','HOME') + '/.ssh/id_rsa' }}"
             type: rsa
             size: 4096
-            mode: '0600'
+            mode: "0600"
           when: not controller_pubkey.stat.exists
-  
+
   tasks:
     - name: 1. Criar o Usuário de Serviço Ansible (se não existir)
       ansible.builtin.user:
